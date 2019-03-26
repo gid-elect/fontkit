@@ -118,6 +118,12 @@ export default class LayoutEngine {
     }
   }
 
+  positionUnadjustedCombiningMarks(glyphRun, verticalGap, italicAngle) {
+    if (this.engine && !this.engine.fallbackPosition) {
+      UnicodeLayoutEngine.positionUnadjustedCombiningMarks(glyphRun.glyphs, glyphRun.positions, verticalGap, italicAngle)
+    }
+  }
+
   hideDefaultIgnorables(glyphs, positions) {
     let space = this.font.glyphForCodePoint(0x20);
     for (let i = 0; i < glyphs.length; i++) {

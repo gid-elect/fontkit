@@ -11,35 +11,68 @@ import unicode from 'unicode-properties';
 export default class UnicodeLayoutEngine {
   constructor(font) {
     this.font = font;
+    this.verticalGap = font.unitsPerEm / 16;
+    this.italicAngle = font.italicAngle;
   }
 
   positionGlyphs(glyphs, positions) {
     // find each base + mark cluster, and position the marks relative to the base
     let clusterStart = 0;
     let clusterEnd = 0;
-    for (let index = 0; index < glyphs.length; index++) {
-      let glyph = glyphs[index];
-      if (glyph.isMark) { // TODO: handle ligatures
+    const glyphCount = glyphs.length;
+    const yGap = this.verticalGap;
+    const italicAngle = this.italicAngle;
+
+    for (let index = 0; index <= glyphCount; index++) {
+      let glyph = index < glyphCount ? glyphs[index] : undefined;
+      if (glyph && glyph.isMark) { // TODO: handle ligatures
         clusterEnd = index;
       } else {
         if (clusterStart !== clusterEnd) {
-          this.positionCluster(glyphs, positions, clusterStart, clusterEnd);
+          UnicodeLayoutEngine.positionCluster(glyphs, positions, clusterStart, clusterEnd, yGap, italicAngle);
         }
 
         clusterStart = clusterEnd = index;
       }
     }
 
-    if (clusterStart !== clusterEnd) {
-      this.positionCluster(glyphs, positions, clusterStart, clusterEnd);
-    }
-
     return positions;
   }
 
-  positionCluster(glyphs, positions, clusterStart, clusterEnd) {
+  static positionUnadjustedCombiningMarks(glyphs, positions, verticalGap, italicAngle) {
+    let clusterStart = undefined;
+    let clusterEnd = undefined;
+    let positioned = false;
+    const glyphCount = glyphs.length;
+
+    for (let index = 0 ; index <= glyphCount ; index++) {
+      const glyph = index < glyphCount ? glyphs[index] : undefined;
+
+      if (glyph && glyph.isMark) { // TODO: handle ligatures
+        const position = positions[index];
+        if (clusterStart === undefined) {
+          clusterStart = index - 1;
+          positioned = false;
+        }
+        if (!positioned && (position.xOffset !== 0 || position.yOffset !== 0))
+          positioned = true;
+        clusterEnd = index;
+      } else {
+        if (clusterStart !== undefined) {
+          if (!positioned && clusterStart >= 0) {
+            this.positionCluster(verticalGap, italicAngle, glyphs, positions, clusterStart, clusterEnd);
+          }
+          clusterStart = undefined;
+        }
+      }
+    }
+  }
+
+  static positionCluster(glyphs, positions, clusterStart, clusterEnd, yGap, italicAngle) {
     let base = glyphs[clusterStart];
     let baseBox = base.cbox.copy();
+    let midY = ( baseBox.minY + baseBox.maxY ) / 2;
+    let italicAdjustment = italicAngle === 0 ? 0 : Math.tan(Math.PI*italicAngle/180);
 
     // adjust bounding box for ligature glyphs
     if (base.codePoints.length > 1) {
@@ -49,7 +82,6 @@ export default class UnicodeLayoutEngine {
 
     let xOffset = -positions[clusterStart].xAdvance;
     let yOffset = 0;
-    let yGap = this.font.unitsPerEm / 16;
 
     // position each of the mark glyphs relative to the base glyph
     for (let index = clusterStart + 1; index <= clusterEnd; index++) {
@@ -98,12 +130,17 @@ export default class UnicodeLayoutEngine {
           case 'Attached_Below_Left':
           case 'Attached_Below':
             // add a small gap between the glyphs if they are not attached
-            if (combiningClass === 'Attached_Below_Left' || combiningClass === 'Attached_Below') {
-              baseBox.minY += yGap;
+            if (combiningClass !== 'Attached_Below_Left' && combiningClass !== 'Attached_Below') {
+              baseBox.minY -= yGap;
             }
 
-            position.yOffset = -baseBox.minY - markBox.maxY;
-            baseBox.minY += markBox.height;
+            if (baseBox.minY > markBox.maxY) {
+              // don't let the mark float above its natural position
+              baseBox.minY = markBox.maxY;
+            }
+
+            position.yOffset = baseBox.minY - markBox.maxY;
+            baseBox.minY -= markBox.height;
             break;
 
           case 'Double_Above':
@@ -113,14 +150,22 @@ export default class UnicodeLayoutEngine {
           case 'Attached_Above':
           case 'Attached_Above_Right':
             // add a small gap between the glyphs if they are not attached
-            if (combiningClass === 'Attached_Above' || combiningClass === 'Attached_Above_Right') {
+            if (combiningClass !== 'Attached_Above' && combiningClass !== 'Attached_Above_Right') {
               baseBox.maxY += yGap;
+            }
+
+            if (baseBox.maxY < markBox.minY) {
+              // don't the mark float below its natural position
+              baseBox.maxY = markBox.minY;
             }
 
             position.yOffset = baseBox.maxY - markBox.minY;
             baseBox.maxY += markBox.height;
             break;
         }
+
+        if (italicAdjustment !== 0)
+          position.xOffset -= (position.yOffset+markBox.minY-midY)*italicAdjustment;
 
         position.xAdvance = position.yAdvance = 0;
         position.xOffset += xOffset;
@@ -131,11 +176,9 @@ export default class UnicodeLayoutEngine {
         yOffset -= position.yAdvance;
       }
     }
-
-    return;
   }
 
-  getCombiningClass(codePoint) {
+  static getCombiningClass(codePoint) {
     let combiningClass = unicode.getCombiningClass(codePoint);
 
     // Thai / Lao need some per-character work

@@ -358,6 +358,18 @@ export default class TTFFont {
   }
 
   /**
+   * Works through a GlyphRun and gives the layout engine a chance to position any combining marks which were not
+   * adjusted during layout. The optional italic angle will be used to apply a horizontal offset to the affected
+   * marks based on their vertical distance from the centre of the base glyph.
+   *
+   * @param {GlyphRun} glyphRun
+   * @param {number} [italicAngle]
+   */
+  positionUnadjustedCombiningMarks(glyphRun, italicAngle=0) {
+    this._layoutEngine.positionUnadjustedCombiningMarks(glyphRun, this.unitsPerEm / 16, italicAngle);
+  }
+
+  /**
    * Returns an array of strings that map to the given glyph id.
    * @param {number} gid - glyph id
    */
@@ -382,41 +394,49 @@ export default class TTFFont {
   }
 
   _getBaseGlyph(glyph, characters = []) {
-    if (!this._glyphs[glyph]) {
+    const key = glyphKey(glyph, characters);
+    let answer = this._glyphs[key];
+
+    if (!answer) {
       if (this.directory.tables.glyf) {
-        this._glyphs[glyph] = new TTFGlyph(glyph, characters, this);
+        answer = this._glyphs[key] = new TTFGlyph(glyph, characters, this);
 
       } else if (this.directory.tables['CFF '] || this.directory.tables.CFF2) {
-        this._glyphs[glyph] = new CFFGlyph(glyph, characters, this);
+        answer = this._glyphs[key] = new CFFGlyph(glyph, characters, this);
       }
     }
 
-    return this._glyphs[glyph] || null;
+    return answer || null;
   }
 
   /**
    * Returns a glyph object for the given glyph id.
    * You can pass the array of code points this glyph represents for
-   * your use later, and it will be stored in the glyph object.
+   * your use later, and it will be stored in the glyph object. A different
+   * glyph object will be returned for the same glyph id if different characters
+   * are specified in a subsequent call.
    *
    * @param {number} glyph
    * @param {number[]} characters
    * @return {Glyph}
    */
   getGlyph(glyph, characters = []) {
-    if (!this._glyphs[glyph]) {
+    const key = glyphKey(glyph, characters);
+    let answer = this._glyphs[key];
+
+    if (!answer) {
       if (this.directory.tables.sbix) {
-        this._glyphs[glyph] = new SBIXGlyph(glyph, characters, this);
+        answer = this._glyphs[glyph] = new SBIXGlyph(glyph, characters, this);
 
       } else if ((this.directory.tables.COLR) && (this.directory.tables.CPAL)) {
-        this._glyphs[glyph] = new COLRGlyph(glyph, characters, this);
+        answer = this._glyphs[glyph] = new COLRGlyph(glyph, characters, this);
 
       } else {
-        this._getBaseGlyph(glyph, characters);
+        answer = this._getBaseGlyph(glyph, characters);
       }
     }
 
-    return this._glyphs[glyph] || null;
+    return answer || null;
   }
 
   /**
@@ -548,4 +568,8 @@ export default class TTFFont {
   getFont(name) {
     return this.getVariation(name);
   }
+}
+
+function glyphKey(glyph, characters) {
+  return glyph+'/'+characters.join('+');
 }
