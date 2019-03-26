@@ -60,7 +60,7 @@ export default class UnicodeLayoutEngine {
       } else {
         if (clusterStart !== undefined) {
           if (!positioned && clusterStart >= 0) {
-            this.positionCluster(verticalGap, italicAngle, glyphs, positions, clusterStart, clusterEnd);
+            this.positionCluster(glyphs, positions, clusterStart, clusterEnd, verticalGap, italicAngle);
           }
           clusterStart = undefined;
         }
